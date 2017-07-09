@@ -1,6 +1,6 @@
 <?php
 
-namespace BCMS\PageAnalyzer;
+namespace PageAnalyzer;
 
 /**
  * Class Analyzer
