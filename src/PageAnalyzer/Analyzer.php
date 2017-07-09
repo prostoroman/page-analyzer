@@ -1,6 +1,6 @@
 <?php
 
-namespace PageAnalyzer;
+namespace BCMS\PageAnalyzer;
 
 /**
  * Class Analyzer
@@ -54,7 +54,7 @@ class Analyzer
      *
      * @var array
      */
-    public $cachedTagWords = [];
+    private $tagWords = [];
 
     /**
      * Returns the array of words from the string
@@ -73,10 +73,9 @@ class Analyzer
     public function setOptions(array $options = [])
     {
         $this->options = array_replace([
-            'excludeNoindexTags' => true,
+            'ignoreNoindex' => false,
             'stopWords' => [],
-            'checkMetaTags' => [],
-            'checkTags' => ['title', 'a', 'b,strong', 'h1,h2,h3,h4,h5,h6']
+            'checkTags' => []
         ], $options);
     }
     /**
@@ -89,12 +88,23 @@ class Analyzer
     {
         $stats = [];
         $this->dom = $this->parser->load($string);
-        $this->excludeNoindexTags();
+
+        if (!$this->options['ignoreNoindex']) {
+            $this->excludeNoindexTags();
+        }
+        
         $this->words = $this->getWords(html_entity_decode(strip_tags($this->dom->outerHtml)));
         $this->stats['_total-with-stopwords'] = count($this->words);
         $this->excludeStopWords();
 
         $this->stats['_total'] = count($this->words);
+
+        // fill tagWords
+        foreach ($this->options['checkTags'] as $tag) {
+            $isMeta = stristr($tag, 'keywords') || stristr($tag, 'description') ? true : false;
+            $query = $isMeta ? 'meta[name="'.$tag.'"]' : $tag;
+            $this->tagWords[$tag] = $this->getTagWords($query, $isMeta ? 'content' : '');
+        }
 
         foreach ($this->words as $word) {
             $word = mb_strtolower($word, 'UTF-8');
@@ -102,10 +112,6 @@ class Analyzer
 
             $this->stats[$root]['count'] = empty($this->stats[$root]['count']) ? 1 : $this->stats[$root]['count'] + 1;
             $this->stats[$root]['percentage'] = round($this->stats[$root]['count'] / $this->stats['_total'] * 100, 2);
-
-            foreach ($this->options['checkMetaTags'] as $tag) {
-                $this->checkWordInTags($word, $root, 'meta[name="'.$tag.'"]', 'content');
-            }
 
             foreach ($this->options['checkTags'] as $tag) {
                 $this->checkWordInTags($word, $root, $tag);
@@ -128,18 +134,14 @@ class Analyzer
      * @param string $word
      * @param string $root
      * @param string $tags
-     * @param string $attr
      * @return boolean
      */
-    public function checkWordInTags($word, $root, $query, $attr = '')
+    public function checkWordInTags($word, $root, $tags)
     {
-        if (empty($this->cachedTagWords[$query])) {
-            $this->cachedTagWords[$query] = $this->getTagsWords($query, $attr);
+        if (!empty($this->stats[$root]['checkTags'][$tags]) && $this->stats[$root]['checkTags'][$tags] > 0) {
+            return;
         }
-
-        if (empty($this->stats[$root]['checks'][$query]) || !$this->stats[$root]['checks'][$query]) {
-            $this->stats[$root]['checks'][$query] = in_array($word, $this->cachedTagWords[$query]) ? 1 : 0;
-        }
+        $this->stats[$root]['checkTags'][$tags] = in_array($word, $this->tagWords[$tags]) ? 1 : 0;
     }
 
     /**
@@ -165,9 +167,6 @@ class Analyzer
      */
     protected function excludeNoindexTags()
     {
-        if (!$this->options['excludeNoindexTags']) {
-            return;
-        }
         // remove <noindex></noindex>
         $noindexes = $this->dom->find('noindex');
         if (count($noindexes)) {
@@ -185,7 +184,7 @@ class Analyzer
      *
      * @param string $tags
      */
-    protected function getTagsWords($query, $attr = '')
+    protected function getTagWords($query, $attr = '')
     {
         $nodes = $this->dom->find($query);
         $words = [];
