@@ -21,7 +21,7 @@ $analyzer = new PageAnalyzer\Analyzer(['stopWords' => $stopWords]);
 var_dump($stats);
 ```
 
-Please check: [the demo here](http://bistro-site.localhost/services/seo/analyzer)
+Please check: [the demo here](http://www.bistro-site.ru/services/seo/analyzer)
 
 Would appreciate any contributions.
 Thank you!
