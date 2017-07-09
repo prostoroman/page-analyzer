@@ -1,8 +1,6 @@
 <?php
 namespace PageAnalyzer;
 
-use PageAnalyzer\Helpers;
-
 /**
  * Class Analyzer
  *
@@ -36,18 +34,27 @@ class Analyzer
      * @var class
      */
     public $dom;
-    /**
-     * Contains stats.
-     *
-     * @var array
-     */
-    public $stats = [];
+
     /**
      * Contains words array.
      *
      * @var array
      */
     public $words = [];
+    /**
+     * Returns the array of words from the string
+     *
+     * @param string $str
+     * @return array
+     */
+
+    /**
+     * Contain cashed Tag Words
+     *
+     * @var array
+     */
+    public $cachedTagWords = [];
+
     /**
      * Returns the array of words from the string
      *
@@ -79,81 +86,62 @@ class Analyzer
      */
     public function analyze($string)
     {
+        $stats = [];
         $this->dom = $this->parser->load($string);
+        $stats['_total-with-stopwords'] = count($this->words);
+
         $this->excludeNoindexTags();
         $this->words = $this->getWords(html_entity_decode(strip_tags($dom->outerHtml)));
         $this->excludeStopWords();
 
         $this->stats['_total'] = count($this->words);
-        $roots = [];
 
-        //title
-        $title = $dom->find('title');
-        $title = count($title) ? getWords($dom->find('title')[0]->text) : [];
-
-        // meta
-        $metaDescription = $dom->find('meta[name="description"]');
-        $metaDescription = count($metaDescription) ? getWords($metaDescription->getAttribute('content')) : [];
-        $metaKeywords = $dom->find('meta[name="keywords"]');
-        $metaKeywords = count($metaKeywords) ? getWords($metaKeywords->getAttribute('content')) : [];
-
-        // h1-h6
-        $h16 = $dom->find('h1,h2,h3,h4,h5,h6');
-        $headers = [];
-        foreach ($h16 as $h) {
-            $headers = array_merge($headers, getWords($h->text));
-        }
-
-        // strong-b
-        $boldTags = $dom->find('strong,b');
-        $bolds = [];
-        foreach ($boldTags as $b) {
-            $bolds = array_merge($bolds, getWords($b->text));
-        }
-
-        // links
-        $linkTags = $dom->find('strong,b');
-        $links = [];
-        foreach ($linkTags as $l) {
-            $links = array_merge($links, getWords($l->text));
-        }
-
-        $stemmer = $this->stemmer;
         foreach ($words as $word) {
             $word = mb_strtolower($word, 'UTF-8');
-            $root = $stemmer->stem_word($word);
-            $stats[$root]['count'] = empty($stats[$root]['count']) ? 1 : $stats[$root]['count'] + 1;
-            $stats[$root]['percentage'] = round($stats[$root]['count'] / $stats['_total'] * 100, 2);
+            $root = $this->stemmer ? $this->stemmer->stem_word($word) : $word;
 
-            if (empty($stats[$root]['title']) || !$stats[$root]['title']) {
-                $stats[$root]['title'] = in_array($word, $title) ? 1 : 0;
-            }
+            $this->stats[$root]['count'] = empty($this->stats[$root]['count']) ? 1 : $this->stats[$root]['count'] + 1;
+            $this->stats[$root]['percentage'] = round($this->stats[$root]['count'] / $this->stats['_total'] * 100, 2);
 
-            if (empty($stats[$root]['keywords']) || !$stats[$root]['keywords']) {
-                $stats[$root]['keywords'] = in_array($word, $metaKeywords) ? 1 : 0;
+            foreach ($this->options['checkMetaTags'] as $tag) {
+                $this->checkWordInTags($word, $root, 'meta[name="'.$tag.'"]', 'content');
             }
 
-            if (empty($stats[$root]['description']) || !$stats[$root]['description']) {
-                $stats[$root]['description'] = in_array($word, $metaDescription) ? 1 : 0;
+            foreach ($this->options['checkTags'] as $tag) {
+                $this->checkWordInTags($word, $root, $tag);
             }
 
-            if (empty($stats[$root]['headers']) || !$stats[$root]['headers']) {
-                $stats[$root]['headers'] = in_array($word, $headers) ? 1 : 0;
-            }
-
-            if (empty($stats[$root]['bolds']) || !$stats[$root]['bolds']) {
-                $stats[$root]['bolds'] = in_array($word, $bolds) ? 1 : 0;
-            }
-            if (empty($stats[$root]['links']) || !$stats[$root]['links']) {
-                $stats[$root]['links'] = in_array($word, $links) ? 1 : 0;
-            }
-            if (empty($roots[$root])) {
-                $roots[$root][] = $word;
-            } else if (!in_array($word, $roots[$root])) {
-                $roots[$root][] = $word;
+            if (empty($stats[$root]['forms'])) {
+                $stats[$root]['forms'][] = $word;
+            } elseif (!in_array($word, $stats[$root]['forms'])) {
+                $stats[$root]['forms'][] = $word;
             }
         }
         arraySortByColumn($stats, 'count', SORT_DESC);
+
+        $this->stats = $stats;
+
+        return $this->stats;
+    }
+
+    /**
+     * Check presence of particular word in array
+     *
+     * @param string $word
+     * @param string $root
+     * @param string $tags
+     * @param string $attr
+     * @return boolean
+     */
+    public function checkWordInTags($word, $root, $tags, $attr = '')
+    {
+        if (empty($this->cachedTagWords[$tags])) {
+            $this->cachedTagWords[$tags] = $this->getTagsWords($tags, $attr);
+        }
+
+        if (empty($this->stats[$root][$tags]) || !$this->stats[$root][$tags]) {
+            $this->stats[$root][$tags] = in_array($word, $words = $this->cachedTagWords[$tags]) ? 1 : 0;
+        }
     }
 
     /**
@@ -179,21 +167,21 @@ class Analyzer
         //$html = preg_replace('/<!--noindex-->.*<!--\/noindex-->/si', '', $html);
         //echo $html;
     }
-
     /**
-     * Remove stop words
+     * Get words from tags
      *
-     * @param array $stopWords
+     * @param string $tags
      */
-    protected function excludeStopWords()
+    protected function getTagsWords($query, $attr = '')
     {
-        if (!count($this->options['stopwords'])) {
-            return;
+        $nodes = $this->dom->find($query);
+        $words = [];
+        foreach ($nodes as $node) {
+            $text = $attr ? $node->getAttribute($attr) : $node->text;
+            $words = array_merge($words, $this->getWords($text));
         }
-        //$stopWords = file_get_contents('seo/stopwords.txt');
-        //$stopWords = $this->getWords($this->options['stopwords']);
-        $this->stats['_total-with-stopwords'] = count($this->words);
-        $this->words = array_diff($words, $stopWords);
+
+        return $words;
     }
 
     /**
