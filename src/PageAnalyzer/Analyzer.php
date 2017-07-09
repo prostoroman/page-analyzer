@@ -1,4 +1,5 @@
 <?php
+
 namespace PageAnalyzer;
 
 /**
@@ -73,9 +74,9 @@ class Analyzer
     {
         $this->options = array_replace([
             'excludeNoindexTags' => true,
-            'stopwords' => [],
-            'checkMetaTags' => ['keyword', 'description'],
-            'checkTags' => ['title', 'a', 'b', 'strong', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+            'stopWords' => [],
+            'checkMetaTags' => [],
+            'checkTags' => ['title', 'a', 'b,strong', 'h1,h2,h3,h4,h5,h6']
         ], $options);
     }
     /**
@@ -84,19 +85,18 @@ class Analyzer
      * @param string $string
      * @return array
      */
-    public function analyze($string)
+    public function analyse($string)
     {
         $stats = [];
         $this->dom = $this->parser->load($string);
-        $stats['_total-with-stopwords'] = count($this->words);
-
         $this->excludeNoindexTags();
-        $this->words = $this->getWords(html_entity_decode(strip_tags($dom->outerHtml)));
+        $this->words = $this->getWords(html_entity_decode(strip_tags($this->dom->outerHtml)));
+        $this->stats['_total-with-stopwords'] = count($this->words);
         $this->excludeStopWords();
 
         $this->stats['_total'] = count($this->words);
 
-        foreach ($words as $word) {
+        foreach ($this->words as $word) {
             $word = mb_strtolower($word, 'UTF-8');
             $root = $this->stemmer ? $this->stemmer->stem_word($word) : $word;
 
@@ -111,15 +111,13 @@ class Analyzer
                 $this->checkWordInTags($word, $root, $tag);
             }
 
-            if (empty($stats[$root]['forms'])) {
-                $stats[$root]['forms'][] = $word;
-            } elseif (!in_array($word, $stats[$root]['forms'])) {
-                $stats[$root]['forms'][] = $word;
+            if (empty($this->stats[$root]['forms'])) {
+                $this->stats[$root]['forms'][] = $word;
+            } elseif (!in_array($word, $this->stats[$root]['forms'])) {
+                $this->stats[$root]['forms'][] = $word;
             }
         }
-        arraySortByColumn($stats, 'count', SORT_DESC);
-
-        $this->stats = $stats;
+        $this->arraySortByColumn($this->stats, 'count', SORT_DESC);
 
         return $this->stats;
     }
@@ -133,15 +131,30 @@ class Analyzer
      * @param string $attr
      * @return boolean
      */
-    public function checkWordInTags($word, $root, $tags, $attr = '')
+    public function checkWordInTags($word, $root, $query, $attr = '')
     {
-        if (empty($this->cachedTagWords[$tags])) {
-            $this->cachedTagWords[$tags] = $this->getTagsWords($tags, $attr);
+        if (empty($this->cachedTagWords[$query])) {
+            $this->cachedTagWords[$query] = $this->getTagsWords($query, $attr);
         }
 
-        if (empty($this->stats[$root][$tags]) || !$this->stats[$root][$tags]) {
-            $this->stats[$root][$tags] = in_array($word, $words = $this->cachedTagWords[$tags]) ? 1 : 0;
+        if (empty($this->stats[$root]['checks'][$query]) || !$this->stats[$root]['checks'][$query]) {
+            $this->stats[$root]['checks'][$query] = in_array($word, $this->cachedTagWords[$query]) ? 1 : 0;
         }
+    }
+
+    /**
+     * Remove stop words
+     *
+     * @param array $stopWords
+     */
+    protected function excludeStopWords()
+    {
+        if (!count($this->options['stopWords'])) {
+            return;
+        }
+        //$stopWords = file_get_contents('seo/stopwords.txt');
+        //$stopWords = $this->getWords($this->options['stopwords']);
+        $this->words = array_diff($this->words, $this->options['stopWords']);
     }
 
     /**
