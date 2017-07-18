@@ -92,7 +92,7 @@ class Analyzer
         if (!$this->options['ignoreNoindex']) {
             $this->excludeNoindexTags();
         }
-        
+
         $this->words = $this->getWords(html_entity_decode(strip_tags($this->dom->outerHtml)));
         $this->stats['_total-with-stopwords'] = count($this->words);
         $this->excludeStopWords();
@@ -154,8 +154,6 @@ class Analyzer
         if (!count($this->options['stopWords'])) {
             return;
         }
-        //$stopWords = file_get_contents('seo/stopwords.txt');
-        //$stopWords = $this->getWords($this->options['stopwords']);
         $this->words = array_diff($this->words, $this->options['stopWords']);
     }
 
